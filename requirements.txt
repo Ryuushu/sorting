@@ -1,0 +1,12 @@
+flask>=3.0.3
+flask-socketio>=5.4.1
+flask-cors>=5.0.0
+opencv-python>=4.10.0.84
+numpy>=2.1.2
+ultralytics>=8.3.30
+easyocr>=1.7.2
+requests>=2.32.3
+python-socketio>=5.11.3
+torch>=2.5.1
+torchvision>=0.20.1
+Pillow>=11.0.0
