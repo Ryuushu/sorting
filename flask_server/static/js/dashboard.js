@@ -197,9 +197,8 @@ async function checkControllerStatus() {
   try {
     const response = await fetch("/api/servo_status");
     const data = await response.json();
-    if (data.status === "online") {
+    if (response.status === 200) {
       controllerOnline = true;
-
       // Update servo positions
       data.servos.forEach((servo) => {
         updateServoPosition(servo.id, servo.position);
@@ -285,7 +284,8 @@ document.getElementById("captureBtn").addEventListener("click", async () => {
   // Tampilkan preview di dashboard
   document.getElementById("captureResult").classList.remove("hidden");
   document.getElementById("capturedImage").src = imageBase64;
-  document.getElementById("captureTime").innerText = new Date().toLocaleString();
+  document.getElementById("captureTime").innerText =
+    new Date().toLocaleString();
 
   try {
     const res = await fetch("/upload_web", {
@@ -313,4 +313,3 @@ document.getElementById("captureBtn").addEventListener("click", async () => {
     alert("Error uploading image.");
   }
 });
-
