@@ -1,0 +1,5 @@
+train: /content/drive/MyDrive/label_alamat_dataset/images/train
+val: /content/drive/MyDrive/label_alamat_dataset/images/val
+
+nc: 1
+names: ['alamat']

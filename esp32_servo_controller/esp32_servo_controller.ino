@@ -1,32 +1,32 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include <ESP32Servo.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+#include <Servo.h>
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "Yuco";
+const char* password = "257u38sg";
 
 Servo servo1, servo2, servo3, servo4, servo5, servo6;
-const int servoPins[6] = {13, 12, 14, 27, 26, 25};
+const int servoPins[6] = {D1, D2, D3, D4, D5, D6};
 int servoPositions[6] = {90, 90, 90, 90, 90, 90};
 
-WebServer server(80);
-const int LED_PIN = 2;
+ESP8266WebServer server(80);
+const int LED_PIN = LED_BUILTIN;  // LED onboard
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
-  
+
+  // Attach servo
   servo1.attach(servoPins[0]);
   servo2.attach(servoPins[1]);
   servo3.attach(servoPins[2]);
   servo4.attach(servoPins[3]);
   servo5.attach(servoPins[4]);
   servo6.attach(servoPins[5]);
-  
-  for (int i = 0; i < 6; i++) {
-    moveServo(i, 90);
-  }
-  
+
+  for (int i = 0; i < 6; i++) moveServo(i, 90);
+
+  // WiFi setup
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -34,10 +34,12 @@ void setup() {
     Serial.print(".");
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
   }
+
   Serial.println("\nConnected!");
   Serial.println(WiFi.localIP());
-  digitalWrite(LED_PIN, HIGH);
-  
+  digitalWrite(LED_PIN, LOW);
+
+  // Routes
   server.on("/", handleRoot);
   server.on("/servo/1", []() { handleServo(0); });
   server.on("/servo/2", []() { handleServo(1); });
@@ -47,7 +49,7 @@ void setup() {
   server.on("/servo/6", []() { handleServo(5); });
   server.on("/status", handleStatus);
   server.on("/reset", handleReset);
-  
+
   server.begin();
 }
 
@@ -56,7 +58,8 @@ void loop() {
 }
 
 void handleRoot() {
-  server.send(200, "text/html", "<h1>ESP32 Servo Controller</h1>");
+  String html = "<h1>Wemos D1 Mini - Servo Controller</h1><p>Use /servo/{1-6}?angle=90</p>";
+  server.send(200, "text/html", html);
 }
 
 void handleServo(int idx) {
@@ -92,7 +95,7 @@ void handleReset() {
 
 void moveServo(int idx, int angle) {
   servoPositions[idx] = angle;
-  switch(idx) {
+  switch (idx) {
     case 0: servo1.write(angle); break;
     case 1: servo2.write(angle); break;
     case 2: servo3.write(angle); break;

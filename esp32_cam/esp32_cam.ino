@@ -5,13 +5,17 @@
 #include "soc/rtc_cntl_reg.h"
 
 // WiFi credentials
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid = "Yuco";
+const char* password = "257u38sg";
 
-// Flask server URL
-const char* serverUrl = "http://192.168.1.100:5000/upload";
+// Flask server endpoints
+const char* streamUrl = "http://192.168.100.205:5000/stream"; // realtime preview
+const char* uploadUrl = "http://192.168.100.205:5000/upload"; // capture manual
 
-// Camera pins for AI-Thinker ESP32-CAM
+// Flash LED pin
+#define FLASH_LED_PIN 4
+
+// Kamera pin mapping (AI-Thinker ESP32-CAM)
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
@@ -29,29 +33,29 @@ const char* serverUrl = "http://192.168.1.100:5000/upload";
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// Flash LED
-#define FLASH_LED_PIN      4
-
-unsigned long lastCaptureTime = 0;
-const unsigned long captureInterval = 500;
+// Interval stream (ms)
+unsigned long lastStreamTime = 0;
+const unsigned long streamInterval = 1000; // realtime tiap 1 detik
 
 void setup() {
   Serial.begin(115200);
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
-  
+
   pinMode(FLASH_LED_PIN, OUTPUT);
   digitalWrite(FLASH_LED_PIN, LOW);
-  
+
+  // WiFi connect
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected");
+  Serial.println("\nWiFi connected!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
-  
+
+  // Kamera config
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -73,81 +77,78 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  
-  if(psramFound()){
-    config.frame_size = FRAMESIZE_VGA;
+
+  if (psramFound()) {
+    config.frame_size = FRAMESIZE_VGA;  // 640x480
     config.jpeg_quality = 10;
     config.fb_count = 2;
   } else {
-    config.frame_size = FRAMESIZE_SVGA;
+    config.frame_size = FRAMESIZE_SVGA; // 800x600
     config.jpeg_quality = 12;
     config.fb_count = 1;
   }
-  
+
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("Camera init failed with error 0x%x", err);
+    Serial.printf("Camera init failed 0x%x\n", err);
     return;
   }
-  
-  sensor_t * s = esp_camera_sensor_get();
-  s->set_brightness(s, 0);
-  s->set_contrast(s, 0);
-  s->set_saturation(s, 0);
-  s->set_special_effect(s, 0);
-  s->set_whitebal(s, 1);
-  s->set_awb_gain(s, 1);
-  s->set_wb_mode(s, 0);
-  s->set_exposure_ctrl(s, 1);
-  s->set_aec2(s, 0);
-  s->set_gain_ctrl(s, 1);
-  s->set_agc_gain(s, 0);
-  s->set_gainceiling(s, (gainceiling_t)0);
-  s->set_bpc(s, 0);
-  s->set_wpc(s, 1);
-  s->set_raw_gma(s, 1);
-  s->set_lenc(s, 1);
-  s->set_hmirror(s, 0);
-  s->set_vflip(s, 0);
-  
-  Serial.println("Camera initialized successfully");
+
+  Serial.println("Camera initialized successfully!");
 }
 
 void loop() {
-  unsigned long currentTime = millis();
-  
-  if (currentTime - lastCaptureTime >= captureInterval) {
-    lastCaptureTime = currentTime;
-    
-    camera_fb_t * fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      return;
-    }
-    
-    digitalWrite(FLASH_LED_PIN, HIGH);
-    
-    if (WiFi.status() == WL_CONNECTED) {
-      HTTPClient http;
-      http.begin(serverUrl);
-      http.addHeader("Content-Type", "image/jpeg");
-      
-      int httpResponseCode = http.POST(fb->buf, fb->len);
-      
-      if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.println("HTTP Response: " + String(httpResponseCode));
-      } else {
-        Serial.print("Error: ");
-        Serial.println(httpResponseCode);
+  unsigned long now = millis();
+
+  // =============== 1️⃣ STREAM REALTIME (tiap 1 detik) ===============
+  if (now - lastStreamTime >= streamInterval) {
+    lastStreamTime = now;
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb) {
+      if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        http.begin(streamUrl);
+        http.addHeader("Content-Type", "image/jpeg");
+        int code = http.POST(fb->buf, fb->len);
+        if (code > 0)
+          Serial.printf("Stream sent (%d)\n", code);
+        http.end();
       }
-      
-      http.end();
+      esp_camera_fb_return(fb);
     }
-    
-    digitalWrite(FLASH_LED_PIN, LOW);
-    esp_camera_fb_return(fb);
   }
-  
+
+  // =============== 2️⃣ MANUAL CAPTURE (via Serial) ===============
+  if (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == 'Y' || c == 'y') {
+      Serial.println("Manual capture triggered!");
+
+      digitalWrite(FLASH_LED_PIN, HIGH);
+      delay(150); // beri waktu nyala
+
+      camera_fb_t *captureFb = esp_camera_fb_get();
+      if (captureFb) {
+        if (WiFi.status() == WL_CONNECTED) {
+          HTTPClient http;
+          http.begin(uploadUrl);
+          http.addHeader("Content-Type", "image/jpeg");
+
+          int code = http.POST(captureFb->buf, captureFb->len);
+          if (code > 0)
+            Serial.printf("Upload success (%d)\n", code);
+          else
+            Serial.printf("Upload failed (%d)\n", code);
+
+          http.end();
+        }
+        esp_camera_fb_return(captureFb);
+      }
+
+      digitalWrite(FLASH_LED_PIN, LOW);
+    }
+  }
+
   delay(10);
 }
