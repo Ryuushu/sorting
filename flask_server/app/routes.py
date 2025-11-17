@@ -6,7 +6,9 @@ import time
 from .detection import process_frame
 from .database import log_detection, init_db
 from .controller import get_servo_status, send_servo_command
-
+from .mqtt_client import mqtt_client
+from app.state_cache import servo_state
+import json
 bp = Blueprint('routes', __name__)
 
 latest_frame = None
@@ -140,30 +142,40 @@ def get_logs():
 
 @bp.route('/api/servo_status')
 def servo_status():
-    """Get servo status from ESP32"""
-    try:
-        response = requests.get(f"{ESP32_CONTROLLER_IP}/status", timeout=3)
-        if response.status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({'status': 'error', 'message': 'Cannot reach ESP32'}), 500
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    """Ask ESP32 for servo status via MQTT"""
+    
+    # Request status
+    mqtt_client.publish("iot/servo/get_status", "1")
+
+
+    if servo_state is None:
+        return jsonify({'status': 'pending', 'message': 'Waiting status...'}), 202
+    
+    return jsonify(servo_state)
 
 @bp.route('/api/manual_servo/<int:servo_id>')
 def manual_servo(servo_id):
-    """Manual servo control from dashboard"""
+    """Manual servo control via MQTT"""
     angle = request.args.get('angle', 180, type=int)
     
     if servo_id < 1 or servo_id > 6:
         return jsonify({'status': 'error', 'message': 'Invalid servo ID'}), 400
-    
-    try:
-        url = f"{ESP32_CONTROLLER_IP}/servo/{servo_id}?angle={angle}"
-        response = requests.get(url, timeout=3)
-        return jsonify(response.json())
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    payload = {
+        "servo": servo_id,
+        "angle": angle
+    }
+
+    topic = f"iot/servo/{servo_id}"
+
+    mqtt_client.publish(topic, json.dumps(payload))
+
+    return jsonify({
+        "status": "success",
+        "message": f"Sent to servo {servo_id}: angle {angle}",
+        "topic": topic,
+        "payload": payload
+    })
 
 @bp.route('/api/config', methods=['GET', 'POST'])
 def config():
