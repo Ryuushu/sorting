@@ -5,12 +5,12 @@
 #include "soc/rtc_cntl_reg.h"
 
 // WiFi credentials
-const char* ssid = "Yuco";
-const char* password = "257u38sg";
+const char* ssid = "redf";
+const char* password = "12345678";
 
 // Flask server endpoints
-const char* streamUrl = "http://192.168.100.205:5000/stream"; // realtime preview
-const char* uploadUrl = "http://192.168.100.205:5000/upload"; // capture manual
+const char* streamUrl = "http://192.168.21.62:5000/stream"; // realtime preview
+const char* uploadUrl = "http://192.168.21.62:5000/upload"; // capture manual
 
 // Flash LED pin
 #define FLASH_LED_PIN 4

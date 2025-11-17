@@ -73,28 +73,45 @@ function highlightServo(servoId) {
 // Manual servo control
 async function manualControl(servoId) {
   try {
+    // 1️⃣ Kirim perintah servo ke 180°
     const response = await fetch(`/api/manual_servo/${servoId}?angle=180`);
     const data = await response.json();
 
     if (data.status === "ok") {
       console.log(`✓ Servo ${servoId} activated manually`);
 
-      // Animate servo
+      // Animasi posisi servo di UI (opsional)
       updateServoPosition(servoId, 180);
-      setTimeout(() => {
-        updateServoPosition(servoId, 90);
+      highlightServo(servoId);
+
+      // 2️⃣ Setelah 500 ms, kembalikan ke 0° lewat endpoint juga
+      setTimeout(async () => {
+        try {
+          const resetResponse = await fetch(`/api/manual_servo/${servoId}?angle=0`);
+          const resetData = await resetResponse.json();
+
+          if (resetData.status === "ok") {
+            console.log(`↩ Servo ${servoId} returned to 0°`);
+            updateServoPosition(servoId, 0); // animasi di UI
+          } else {
+            console.warn(`⚠ Gagal reset servo ${servoId}:`, resetData.message);
+          }
+        } catch (resetError) {
+          console.error("Error resetting servo:", resetError);
+        }
       }, 500);
 
-      highlightServo(servoId);
     } else {
       console.error("Failed to activate servo:", data.message);
       alert("Failed to activate servo: " + data.message);
     }
+
   } catch (error) {
     console.error("Error:", error);
     alert("Error communicating with servo controller");
   }
 }
+
 
 // Load activity logs
 async function loadLogs() {
@@ -262,7 +279,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Ganti <video> jadi <img> karena /video_feed itu MJPEG, bukan media stream
   const img = document.createElement("img");
-  img.src = "http://192.168.100.205:5000/video_feed";
+  img.src = "http://192.168.21.62:5000/video_feed";
   img.className = "w-full h-full object-contain";
   video.replaceWith(img);
   img.id = "videoStream";
@@ -298,7 +315,13 @@ document.getElementById("captureBtn").addEventListener("click", async () => {
     console.log("Upload response:", data);
 
     if (data.status === "ok") {
-      // Jika server juga kirim hasil deteksi
+      // tampilkan hasil gambar yang sudah dideteksi
+      if (data.detections_image) {
+        document.getElementById("capturedImage").src =
+          "data:image/jpeg;base64," + data.detections_image;
+      }
+
+      // tampilkan hasil deteksi text + servo
       if (data.detections && data.detections.length > 0) {
         const det = data.detections[0];
         document.getElementById("latestDetection").classList.remove("hidden");

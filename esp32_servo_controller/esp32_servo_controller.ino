@@ -1,9 +1,9 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <Servo.h>
+#include <ESP32Servo.h>
 
-const char* ssid = "Yuco";
-const char* password = "257u38sg";
+const char* ssid = "redf";
+const char* password = "12345678";
 
 Servo servo1, servo2, servo3, servo4, servo5, servo6;
 const int servoPins[6] = {D1, D2, D3, D4, D5, D6};
@@ -16,13 +16,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
 
+  servo5.setPeriodHertz(50);
+
   // Attach servo
-  servo1.attach(servoPins[0]);
-  servo2.attach(servoPins[1]);
-  servo3.attach(servoPins[2]);
-  servo4.attach(servoPins[3]);
-  servo5.attach(servoPins[4]);
-  servo6.attach(servoPins[5]);
+  servo5.attach(servoPins[4], 500, 2400);
 
   for (int i = 0; i < 6; i++) moveServo(i, 90);
 
