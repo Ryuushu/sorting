@@ -1,42 +1,116 @@
-import paho.mqtt.client as mqtt
-import ssl
-from app.state_cache import servo_state
+# app/mqtt_capture.py
+import cv2
+import time
+import base64
 import json
-MQTT_BROKER = "4329d3049b4f4b4d84fb6c681a775ff9.s1.eu.hivemq.cloud"
-MQTT_PORT = 8883
-MQTT_TOPIC_SERVO_CMD = "esp8266/servo/cmd"
-MQTT_TOPIC_STATUS = "esp8266/status"
-MQTT_USERNAME = "ilham"
-MQTT_PASSWORD = "Babibabun3"
+import numpy as np
+import paho.mqtt.client as mqtt
+from app.controller import capture_ctrl
+from app import socketio
+from threading import Lock
+from datetime import datetime
+# --------------------------
+# MQTT CONFIG
+# --------------------------
+BROKER = "4329d3049b4f4b4d84fb6c681a775ff9.s1.eu.hivemq.cloud"
+PORT = 8883
+USERNAME = "ilham"
+PASSWORD = "Babibabun3"
+TOPIC_DISTANCE = "esp8266/ultrasonic"
 
 mqtt_client = mqtt.Client()
-mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-mqtt_client.tls_set(
-    tls_version=ssl.PROTOCOL_TLS,
-    cert_reqs=ssl.CERT_REQUIRED
-)
-def on_connect(client, userdata, flags, rc):
-    print(f"Connected to MQTT Broker with result code {rc}")
-    client.subscribe(MQTT_TOPIC_STATUS)
+mqtt_client.username_pw_set(USERNAME, PASSWORD)
+mqtt_client.tls_set()
 
+# --------------------------
+# COOLDOWN CONFIG
+# --------------------------
+capture_ctrl.COOLDOWN_TIME = 3  # detik
+
+# --------------------------
+# Save Frame to Disk
+# --------------------------
+def save_frame_to_disk():
+    if capture_ctrl.latest_frame is None:
+        print("⚠️ latest_frame NULL, belum ada gambar dari browser!")
+        return
+
+    timestamp = int(time.time())
+    filename = f"capture_{timestamp}.jpg"
+    path = f"static/captures/{filename}"
+    cv2.imwrite(path, capture_ctrl.latest_frame)
+    print(f"📸 Saved: {path}")
+
+    _, buf = cv2.imencode(".jpg", capture_ctrl.latest_frame)
+    img64 = base64.b64encode(buf).decode()
+
+    # Kirim ke frontend
+    socketio.emit("capture_done", {"file": filename, "image": img64})
+    print("✅ Capture dikirim ke frontend")
+
+    # Aktifkan cooldown
+    with capture_ctrl.lock:
+        capture_ctrl.cooldown_active = True
+        print("⛔ Cooldown aktif (anti spam capture)")
+
+    # Mulai timer cooldown
+    socketio.start_background_task(cooldown_timer)
+
+# --------------------------
+# Cooldown Timer
+# --------------------------
+def cooldown_timer():
+    time.sleep(capture_ctrl.COOLDOWN_TIME)
+    with capture_ctrl.lock:
+        capture_ctrl.cooldown_active = False
+        capture_ctrl.capture_requested = False
+        print("✅ Cooldown selesai, capture boleh lagi")
+
+# --------------------------
+# MQTT on_message
+# --------------------------
 def on_message(client, userdata, msg):
-    global servo_state
-    
-    topic = msg.topic
-    payload = msg.payload
-    print(f"MQTT Message received: {topic} -> {payload}")
-    
-    if msg.topic == "iot/servo/status":
-        try:
-            data = json.loads(msg.payload.decode())
-            servo_state = data
-        except:
-            pass
+    try:
+        payload = json.loads(msg.payload.decode())
+    except:
+        print("❌ Bad JSON:", msg.payload)
+        return
 
-mqtt_client.on_connect = on_connect
-mqtt_client.on_message = on_message
+    # Ambil distance
+    if isinstance(payload, (float, int)):
+        distance = float(payload)
+    elif isinstance(payload, dict):
+        distance = float(payload.get("distance", 999))
+    else:
+        print("❌ Unsupported payload:", payload)
+        return
 
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    print(f"{timestamp} | 📏 Distance: {distance} | cooldown: {capture_ctrl.cooldown_active} | requested: {capture_ctrl.capture_requested}")
+    if distance > 20:
+        if capture_ctrl.capture_requested:
+            with capture_ctrl.lock:
+                capture_ctrl.capture_requested = False
+            print("🔄 Reset capture_requested karena objek menjauh")
+    # Trigger capture jika jarak sesuai
+    if 15 <= distance <= 17:
+        with capture_ctrl.lock:
+            if not capture_ctrl.cooldown_active and not capture_ctrl.capture_requested:
+                capture_ctrl.capture_requested = True
+                print("⚡ Trigger capture sent ke frontend")
+                socketio.start_background_task(
+                    lambda: socketio.emit("trigger_capture", namespace="/")
+                )
+                # socketio.start_background_task(save_frame_to_disk)
+            else:
+                print("⛔ Capture diblokir, cooldown atau sudah requested")         
 
+# --------------------------
+# Start MQTT
+# --------------------------
 def start_mqtt():
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.on_message = on_message
+    mqtt_client.connect(BROKER, PORT, 60)
+    mqtt_client.subscribe(TOPIC_DISTANCE)
     mqtt_client.loop_start()
+    print("📡 MQTT Connected & Listening")

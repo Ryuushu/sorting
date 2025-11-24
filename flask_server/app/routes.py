@@ -3,11 +3,13 @@ import cv2
 import numpy as np
 import base64
 import time
-from .detection import process_frame
-from .database import log_detection, init_db
-from .controller import get_servo_status, send_servo_command
+
+from .detection import deteksi_roi
+from .database import log_detection, init_db,log
 from .mqtt_client import mqtt_client
 from app.state_cache import servo_state
+from app import socketio
+from app.controller import capture_ctrl
 import json
 bp = Blueprint('routes', __name__)
 
@@ -32,7 +34,7 @@ def upload_frame():
             return jsonify({'status': 'error', 'message': 'Invalid image'}), 400
         
         # Process frame
-        processed_frame, detections = process_frame(frame)
+        processed_frame, detections = deteksi_roi(frame)
         
         # Store latest frame
         with frame_lock:
@@ -56,7 +58,6 @@ def upload_frame():
 def upload_web():
     try:
         data = request.get_json(silent=True)
-
         if not data:
             return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
         
@@ -64,7 +65,7 @@ def upload_web():
         if not image_data or not image_data.startswith("data:image"):
             return jsonify({'status': 'error', 'message': 'Invalid image data'}), 400
 
-        # Decode base64
+        # ---- Decode Base64 ----
         image_base64 = image_data.split(",")[1]
         file_bytes = base64.b64decode(image_base64)
 
@@ -74,21 +75,60 @@ def upload_web():
         if frame is None:
             return jsonify({'status': 'error', 'message': 'Failed to decode image'}), 400
 
-        processed_frame, detections = process_frame(frame)
+        # ---- Deteksi ROI ----
+        img_box, paper_box, roi_box = deteksi_roi(frame)
 
-        _, buffer = cv2.imencode('.jpg', processed_frame)
+        # Konversi hasil gambar ke base64
+        _, buffer = cv2.imencode('.jpg', img_box)
         frame_base64 = base64.b64encode(buffer).decode('utf-8')
+
+        # Emit ke WebSocket
         socketio.emit('frame_update', {'frame': frame_base64})
 
+        # Konversi numpy -> list
+        paper_list = paper_box.tolist() if paper_box is not None else None
+        roi_list = roi_box.tolist() if roi_box is not None else None
+        # capture_ctrl.reset_capture()
+        
         return jsonify({
             'status': 'ok',
-            'detections': detections,
+            'paper_box': paper_list,
+            'roi_box': roi_list,
             'detections_image': frame_base64
         }), 200
 
     except Exception as e:
         print("❌ Error:", e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@bp.route("/proxy_ipcam")
+def proxy_ipcam():
+    import requests
+    from flask import Response, request
+
+    url = request.args.get("url")
+    if not url:
+        return "Missing IP Camera URL", 400
+
+    # Auto-add protocol
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "http://" + url
+
+    try:
+        # Streaming request ke IP Camera
+        r = requests.get(url, stream=True, timeout=5)
+
+        # Pastikan responsnya MJPEG
+        return Response(
+            r.iter_content(chunk_size=1024),
+            content_type=r.headers.get(
+                "Content-Type",
+                "multipart/x-mixed-replace; boundary=--frame",
+            )
+        )
+    except Exception as e:
+        print("Proxy error:", e)
+        return "Failed to fetch IP Camera stream", 500
 
 @bp.route('/video_feed')
 def video_feed():
@@ -130,15 +170,7 @@ def stream_frame():
 @bp.route('/api/logs')
 def get_logs():
     """Get detection logs from MySQL"""
-    limit = request.args.get('limit', 50, type=int)
-    
-    conn = mysql.connector.connect(**DB_CONFIG)
-    c = conn.cursor(dictionary=True)
-    c.execute("SELECT * FROM detections ORDER BY id DESC LIMIT %s", (limit,))
-    rows = c.fetchall()
-    conn.close()
-
-    return jsonify(rows)
+    return jsonify(log())
 
 @bp.route('/api/servo_status')
 def servo_status():
@@ -156,19 +188,18 @@ def servo_status():
 @bp.route('/api/manual_servo/<int:servo_id>')
 def manual_servo(servo_id):
     """Manual servo control via MQTT"""
-    angle = request.args.get('angle', 180, type=int)
+    angle = request.args.get('angle', 90, type=int)
     
     if servo_id < 1 or servo_id > 6:
         return jsonify({'status': 'error', 'message': 'Invalid servo ID'}), 400
 
-    payload = {
-        "servo": servo_id,
-        "angle": angle
-    }
+    # Payload sesuai format ESP
+    payload = f"servo{servo_id}:{angle}"
 
-    topic = f"iot/servo/{servo_id}"
+    # Topik sesuai ESP
+    topic = "servo/control"
 
-    mqtt_client.publish(topic, json.dumps(payload))
+    mqtt_client.publish(topic, payload)
 
     return jsonify({
         "status": "success",
@@ -176,6 +207,7 @@ def manual_servo(servo_id):
         "topic": topic,
         "payload": payload
     })
+
 
 @bp.route('/api/config', methods=['GET', 'POST'])
 def config():

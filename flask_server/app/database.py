@@ -1,6 +1,8 @@
 import mysql.connector
 from datetime import datetime
 from .config import DB_CONFIG
+from flask import request
+
 
 def init_db():
     conn = mysql.connector.connect(**DB_CONFIG)
@@ -28,3 +30,16 @@ def log_detection(detected_text, servo_id, confidence, bbox):
     conn.commit()
     conn.close()
     return timestamp
+
+
+def log():
+    """Get detection logs from MySQL"""
+    limit = request.args.get('limit', 50, type=int)
+    
+    conn = mysql.connector.connect(**DB_CONFIG)
+    c = conn.cursor(dictionary=True)
+    c.execute("SELECT * FROM detections ORDER BY id DESC LIMIT %s", (limit,))
+    rows = c.fetchall()
+    conn.close()
+
+    return rows

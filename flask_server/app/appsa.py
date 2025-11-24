@@ -352,4 +352,4 @@ if __name__ == '__main__':
     print(f"🌐 Dashboard available at http://0.0.0.0:5000/")
     print(f"🤖 ESP32 Controller: {ESP32_CONTROLLER_IP}")
     print("=" * 60)
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)

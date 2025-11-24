@@ -1,246 +1,292 @@
-// ========== SOCKET.IO SETUP ==========
-const socket = io();
-let cameraOnline = false;
-let controllerOnline = false;
+const socket = io("http://localhost:5000"); 
+socket.on("connect", () => console.log("Socket connected!"));
+console.log(socket.connected);
 
-// Track last frame time
-let lastFrameTime = Date.now();
+socket.on("trigger_capture", () => {
+    console.log("📸 AUTO CAPTURE triggered from backend!");
 
-socket.on("connect", () => {
-  console.log("✓ Connected to server");
-  updateStatusIndicators();
+    const element = document.getElementById("videoStream");
+    if (element.tagName === "IMG") captureIPCam(element);
+    else captureWebcam(element);
 });
+/* ===========================
+   CAMERA HANDLING
+=========================== */
+const video = document.getElementById("videoStream");
+const cameraSelect = document.getElementById("cameraSelect");
+const webcamList = document.getElementById("webcamList");
+const ipCamForm = document.getElementById("ipCamForm");
+const ipCamUrl = document.getElementById("ipCamUrl");
 
-socket.on("disconnect", () => {
-  console.log("✗ Disconnected from server");
-  updateStatusIndicators();
-});
+let currentStream = null;
 
-// Track frame updates
-socket.on("frame_update", () => {
-  cameraOnline = true;
-  lastFrameTime = Date.now();
-  updateStatusIndicators();
-});
+/* ========== Show Options ========== */
+cameraSelect.addEventListener("change", async () => {
+    const mode = cameraSelect.value;
 
-// Track detections
-socket.on("new_detection", (data) => {
-  console.log("New detection:", data);
-  
-  cameraOnline = true;
-  updateStatusIndicators();
-
-  document.getElementById("latestDetection").classList.remove("hidden");
-  document.getElementById("detectedText").textContent = data.text;
-  document.getElementById("activatedServo").textContent = `Servo ${data.servo}`;
-  
-  updateServoPosition(data.servo, 180);
-  highlightServo(data.servo);
-  addLogEntry(data);
-});
-
-// ========== CAMERA SELECTION UI ==========
-async function loadCameras() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const videoDevices = devices.filter(d => d.kind === "videoinput");
-
-  const webcamList = document.getElementById("webcamList");
-  webcamList.innerHTML = "";
-
-  videoDevices.forEach((cam, i) => {
-    let opt = document.createElement("option");
-    opt.value = cam.deviceId;
-    opt.textContent = cam.label || `Camera ${i + 1}`;
-    webcamList.appendChild(opt);
-  });
-}
-
-document.getElementById("cameraSelect").addEventListener("change", e => {
-  const webcamSelect = document.getElementById("webcamList");
-  const ipForm = document.getElementById("ipCamForm");
-
-  webcamSelect.classList.add("hidden");
-  ipForm.classList.add("hidden");
-
-  if (e.target.value === "webcam_list") {
-    loadCameras();
-    webcamSelect.classList.remove("hidden");
-  } else if (e.target.value === "ipcam") {
-    ipForm.classList.remove("hidden");
-  }
-});
-
-async function startWebcam(deviceId = null) {
-  let stream = await navigator.mediaDevices.getUserMedia({
-    video: deviceId ? { deviceId } : true
-  });
-  
-  setVideoStream(stream);
-  localStorage.setItem("cameraMode", "webcam");
-  if (deviceId) localStorage.setItem("webcamDevice", deviceId);
-}
-
-function applyIPCamera() {
-  let url = document.getElementById("ipCamUrl").value;
-  if (!url) return alert("Masukkan URL IP Camera!");
-
-  stopVideoStream();
-  setVideoSrc(url);
-
-  localStorage.setItem("cameraMode", "ipcam");
-  localStorage.setItem("ipcamUrl", url);
-}
-
-// ========== REPLACE VIDEO WITH <IMG> FOR MJPEG ==========
-const videoContainer = document.getElementById("videoStream");
-
-function setVideoStream(stream) {
-  if (videoContainer.tagName !== "VIDEO") resetVideoTag();
-
-  videoContainer.srcObject = stream;
-  videoContainer.play();
-}
-
-function setVideoSrc(url) {
-  if (videoContainer.tagName !== "VIDEO") resetVideoTag();
-
-  videoContainer.srcObject = null;
-  videoContainer.src = url;
-  videoContainer.play();
-}
-
-function resetVideoTag() {
-  const video = document.createElement("video");
-  video.id = "videoStream";
-  video.className = "w-full h-full object-contain";
-  video.autoplay = true;
-  videoContainer.replaceWith(video);
-}
-
-function stopVideoStream() {
-  if (videoContainer.srcObject) {
-    videoContainer.srcObject.getTracks().forEach(t => t.stop());
-  }
-}
-
-// ========== STATUS HANDLER ==========
-function updateStatusIndicators() {
-  document.getElementById("cameraStatus").className =
-    "status-indicator " + (cameraOnline ? "status-online pulse" : "status-offline");
-
-  document.getElementById("controllerStatus").className =
-    "status-indicator " + (controllerOnline ? "status-online pulse" : "status-offline");
-}
-
-// ========== SERVO UI ==========
-function updateServoPosition(id, angle) {
-  document.getElementById(`angle${id}`).textContent = `${angle}°`;
-
-  const rotation = angle - 90;
-  document.getElementById(`needle${id}`).style.transform =
-    `translateX(-50%) rotate(${rotation}deg)`;
-
-  const progress = (angle / 180) * 157;
-  document.getElementById(`progress${id}`).style.strokeDashoffset = 157 - progress;
-}
-
-function highlightServo(id) {
-  const servoCard = document.getElementById(`servo${id}`);
-  servoCard.classList.add("ring-4", "ring-green-400");
-  
-  setTimeout(() => {
-    servoCard.classList.remove("ring-4", "ring-green-400");
-  }, 2000);
-}
-
-// ========== MANUAL SERVO FUNCTIONS ==========
-async function manualControl(servoId) {
-  const res = await fetch(`/api/manual_servo/${servoId}?angle=180`);
-  const data = await res.json();
-
-  if (data.status !== "ok") {
-    alert("Failed: " + data.message);
-    return;
-  }
-
-  updateServoPosition(servoId, 180);
-  highlightServo(servoId);
-
-  setTimeout(async () => {
-    await fetch(`/api/manual_servo/${servoId}?angle=0`);
-    updateServoPosition(servoId, 0);
-  }, 500);
-}
-
-// ========== LOGGING ==========
-function addLogEntry(data) {
-  addLogEntryToDOM({
-    timestamp: data.timestamp,
-    text: data.text,
-    servo: data.servo,
-    confidence: data.confidence,
-  }, true);
-}
-
-function addLogEntryToDOM(log, prepend = false) {
-  const logContainer = document.getElementById("activityLog");
-  const entry = document.createElement("div");
-
-  entry.className =
-    "log-entry bg-gray-700 rounded-lg p-4 mb-3 flex items-center justify-between";
-
-  const conf = (log.confidence * 100).toFixed(1);
-  const color = log.confidence > 0.8 ? "text-green-400" : "text-yellow-400";
-
-  entry.innerHTML = `
-    <div class="flex items-center space-x-4">
-      <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-        <i class="fas fa-robot text-white text-xl"></i>
-      </div>
-      <div>
-        <p class="font-semibold text-lg">
-          Detected: <span class="text-blue-400">${log.text}</span>
-        </p>
-        <p class="text-sm text-gray-400">${log.timestamp}</p>
-      </div>
-    </div>
-    <div class="text-right">
-      <p class="text-2xl font-bold text-purple-400">Servo ${log.servo}</p>
-      <p class="text-sm ${color}">Confidence: ${conf}%</p>
-    </div>
-  `;
-
-  if (prepend) logContainer.prepend(entry);
-  else logContainer.appendChild(entry);
-}
-
-// ========== INITIALIZATION ==========
-document.addEventListener("DOMContentLoaded", () => {
-  console.log("🚀 Dashboard initialized");
-
-  // Load logs
-  loadLogs();
-
-  // Check servo every 5s
-  checkControllerStatus();
-  setInterval(checkControllerStatus, 5000);
-
-  // Camera timeout check
-  setInterval(() => {
-    if (Date.now() - lastFrameTime > 5000) {
-      cameraOnline = false;
-      updateStatusIndicators();
+    if (mode === "webcam_default") {
+        webcamList.classList.add("hidden");
+        ipCamForm.classList.add("hidden");
+        startDefaultWebcam();
+    } 
+    else if (mode === "webcam_list") {
+        ipCamForm.classList.add("hidden");
+        webcamList.classList.remove("hidden");
+        await loadWebcamList();
+    } 
+    else if (mode === "ipcam") {
+        webcamList.classList.add("hidden");
+        ipCamForm.classList.remove("hidden");
+        stopStream();
+        video.srcObject = null;
+        video.src = "";
     }
-  }, 1000);
-
-  // Init servo UI
-  for (let i = 1; i <= 6; i++) updateServoPosition(i, 90);
-
-  // Restore camera state
-  const mode = localStorage.getItem("cameraMode");
-  if (mode === "ipcam") {
-    setVideoSrc(localStorage.getItem("ipcamUrl"));
-  } else {
-    startWebcam(localStorage.getItem("webcamDevice"));
-  }
 });
+
+/* ========== Default Webcam ========== */
+async function startDefaultWebcam() {
+    stopStream();
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        currentStream = stream;
+    } catch (err) {
+        alert("Tidak bisa membuka webcam");
+    }
+}
+
+/* ========== List Available Webcam ========== */
+async function loadWebcamList() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        alert("Browser tidak mendukung webcam atau halaman tidak pakai HTTPS!");
+        return;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(d => d.kind === "videoinput");
+
+    webcamList.innerHTML = "";
+    cameras.forEach((cam, i) => {
+        const opt = document.createElement("option");
+        opt.value = cam.deviceId;
+        opt.textContent = cam.label || `Webcam ${i + 1}`;
+        webcamList.appendChild(opt);
+    });
+
+    startSelectedWebcam();
+}
+
+webcamList.addEventListener("change", startSelectedWebcam);
+
+async function startSelectedWebcam() {
+    stopStream();
+    const id = webcamList.value;
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: id }
+        });
+        video.srcObject = stream;
+        currentStream = stream;
+    } catch (err) {
+        alert("Gagal membuka webcam tersebut.");
+    }
+}
+
+/* ========== IP Camera (RTSP/HTTP MJPEG) ========== */
+function applyIPCamera() {
+    let url = ipCamUrl.value.trim();
+    if (!url) return;
+
+    stopStream();
+
+    const old = document.getElementById("videoStream");
+
+    const img = document.createElement("img");
+    img.id = "videoStream";
+    img.src = `/proxy_ipcam?url=${encodeURIComponent(url)}`;
+    img.className = "w-full h-full object-contain";
+
+    old.replaceWith(img);
+}
+
+/* ========== Stop Stream ========== */
+function stopStream() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
+}
+
+/* ===========================
+   CAPTURE & UPLOAD TO BACKEND
+=========================== */
+const captureBtn = document.getElementById("captureBtn");
+const capturedImage = document.getElementById("capturedImage");
+const captureResult = document.getElementById("captureResult");
+const captureTime = document.getElementById("captureTime");
+const detectedText = document.getElementById("detectedText");
+const activatedServo = document.getElementById("activatedServo");
+const captureCanvas = document.getElementById("captureCanvas");
+// const ctx = captureCanvas.getContext("2d");
+
+captureBtn.addEventListener("click", () => {
+    const element = document.getElementById("videoStream");
+
+    if (element.tagName === "IMG") {
+        captureIPCam(element);
+    } else {
+        captureWebcam(element);
+    }
+});
+
+function captureWebcam(video) {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0);
+
+    const dataURL = canvas.toDataURL("image/jpeg");
+    processCapturedImage(dataURL);
+}
+
+function captureIPCam(img) {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+
+    const dataURL = canvas.toDataURL("image/jpeg");
+    processCapturedImage(dataURL);
+}
+
+function processCapturedImage(dataURL) {
+    capturedImage.src = dataURL;
+    captureResult.classList.remove("hidden");
+    captureTime.textContent = new Date().toLocaleTimeString();
+
+    uploadFrame(dataURL); // kirim ke backend
+}
+/* Upload to backend */
+async function uploadFrame(base64data) {
+    try {
+        const res = await fetch("/upload_web", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: base64data })
+        });
+
+        const data = await res.json();
+    if (data.status !== "ok") return;
+
+    // Update hasil captured frame
+    updateCapturedFrame(data.detections_image, data.paper_box, data.roi_box);
+        // detectedText.textContent = data.label || "-";
+        // activatedServo.textContent = data.servo || "-";
+
+        // document.getElementById("latestDetection").classList.remove("hidden");
+
+        // updateServoUI(data.servo, data.angle ?? 90);
+
+    } catch (err) {
+        console.log("Upload error:", err);
+    }
+}
+
+/* ===========================
+   SERVO UI UPDATE
+=========================== */
+function updateServoUI(id, angle) {
+    if (!id || id < 1 || id > 6) return;
+
+    document.getElementById(`angle${id}`).textContent = angle + "°";
+
+    const needle = document.getElementById(`needle${id}`);
+    const deg = ((angle - 0) / 180) * 180 - 90;
+    needle.style.transform = `translateX(-50%) rotate(${deg}deg)`;
+
+    const progress = document.getElementById(`progress${id}`);
+    const dash = 157 - (157 * angle / 180);
+    progress.style.strokeDashoffset = dash;
+}
+
+/* ===========================
+   MANUAL SERVO CONTROL
+=========================== */
+function manualControl(id) {
+    fetch(`/api/manual_servo/${id}`);
+}
+
+/* ===========================
+   ACTIVITY LOG
+=========================== */
+async function loadLogs() {
+    const res = await fetch("/api/logs");
+    const logs = await res.json();
+
+    const logDiv = document.getElementById("activityLog");
+    logDiv.innerHTML = "";
+
+    logs.forEach(log => {
+        const p = document.createElement("p");
+        p.className = "log-entry text-gray-300 mb-1";
+        p.textContent = log;
+        logDiv.appendChild(p);
+    });
+}
+
+function updateCapturedFrame(base64Image, paperBox, roiBox) {
+    capturedImage.src = "data:image/jpeg;base64," + base64Image;
+
+    capturedImage.onload = () => {
+        // Sesuaikan canvas dengan ukuran image
+        captureCanvas.width = capturedImage.width;
+        captureCanvas.height = capturedImage.height;
+
+        // Clear canvas sebelum menggambar ulang
+        // ctx.clearRect(0, 0, captureCanvas.width, captureCanvas.height);
+
+        // // Gambar bounding box
+        // drawBox(ctx, paperBox, "blue");   // bounding box kertas
+        // drawBox(ctx, roiBox, "yellow");   // bounding box tulisan
+    };
+
+    // Tampilkan waktu capture
+    const now = new Date();
+    captureTime.textContent = now.toLocaleTimeString();
+
+    // Tampilkan div captureResult
+    captureResult.classList.remove("hidden");
+}
+function drawBox(ctx, box, color, width = 3) {
+    if (!box) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(box[0][0], box[0][1]);
+    ctx.lineTo(box[1][0], box[1][1]);
+    ctx.lineTo(box[2][0], box[2][1]);
+    ctx.lineTo(box[3][0], box[3][1]);
+    ctx.closePath();
+    ctx.stroke();
+}
+let capturedFlag = false;
+
+function checkDistanceAndCapture() {
+    if(latestDistance !== null && latestDistance <= DISTANCE_THRESHOLD && !capturedFlag) {
+        const element = document.getElementById("videoStream");
+
+        if(element.tagName === "IMG") captureIPCam(element);
+        else captureWebcam(element);
+
+        capturedFlag = true;  // mencegah capture terus-menerus
+    } else if(latestDistance > DISTANCE_THRESHOLD) {
+        capturedFlag = false;  // reset flag saat jarak aman
+    }
+}
+loadLogs();

@@ -1,52 +1,70 @@
 import cv2
-from ultralytics import YOLO
-import easyocr
-from .controller import send_servo_command
+import numpy as np
 
-model = YOLO('best.pt')
-reader = easyocr.Reader(['en'], gpu=True)
+def crop_rotated(img, box):
+    pts = np.float32(box)
+    pts = pts[np.argsort(pts[:,1])]
+    top = pts[:2]
+    bottom = pts[2:]
+    top = top[np.argsort(top[:,0])]
+    bottom = bottom[np.argsort(bottom[:,0])]
+    pts = np.float32([top[0], top[1], bottom[1], bottom[0]])
 
-TEXT_SERVO_MAPPING = {
-    "A1": 1,
-    "A2": 2,
-    "A3": 3,
-    "A4": 4,
-    "A5": 5,
-    "A6": 6,
-}
+    w = int(np.linalg.norm(pts[0] - pts[1]))
+    h = int(np.linalg.norm(pts[0] - pts[3]))
+    dst = np.float32([[0,0],[w,0],[w,h],[0,h]])
+    M  = cv2.getPerspectiveTransform(pts, dst)
+    warped = cv2.warpPerspective(img, M, (w, h))
+    return warped
 
-def process_frame(frame):
-    detections = []
-    results = model(frame, conf=0.5)
 
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cls = int(box.cls[0])
-            label = model.names[cls]
+def deteksi_roi(img):
+    output = img.copy()
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5,5), 0)
 
-            roi = frame[y1:y2, x1:x2]
-            if roi.size == 0: continue
+    # ---- Kontur kertas ----
+    edges = cv2.Canny(blur, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            ocr_results = reader.readtext(roi)
+    if not contours:
+        print("❌ Tidak ada kontur terdeteksi")
+        return output, None, None
 
-            for (bbox, text, ocr_conf) in ocr_results:
-                text = text.strip().upper()
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    paper_cnt = contours[0]
+    rect = cv2.minAreaRect(paper_cnt)
+    paper_box = cv2.boxPoints(rect).astype(np.int32)
 
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"{label}: {text}", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    # ---- Crop kertas ----
+    paper_crop = crop_rotated(gray, paper_box)
+    _, text_bin = cv2.threshold(paper_crop, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contours_text, _ = cv2.findContours(text_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-                if text in TEXT_SERVO_MAPPING:
-                    servo_id = TEXT_SERVO_MAPPING[text]
-                    detections.append({
-                        'text': text,
-                        'servo': servo_id,
-                        'confidence': ocr_conf,
-                        'bbox': [x1, y1, x2, y2],
-                        'object_label': label
-                    })
+    roi_box = paper_box.copy()  # default fallback
 
-                    send_servo_command(servo_id)
-                    cv2.circle(frame, (x2-20, y1+20), 10, (0, 255, 0), -1)
+    kandidat = []
+    for c in contours_text:
+        r = cv2.minAreaRect(c)
+        (cx, cy), (w, h), angle = r
+        if 20 < w < paper_crop.shape[1] * 0.9 and 10 < h < paper_crop.shape[0] * 0.5:
+            kandidat.append(r)
 
-    return frame, detections
+    if kandidat:
+        kandidat = sorted(kandidat, key=lambda r: r[1][0]*r[1][1], reverse=True)
+        (cx, cy), (w, h), angle = kandidat[0]
+        text_box = cv2.boxPoints(kandidat[0]).astype(np.float32)
+
+        # shrink supaya fokus tulisan
+        shrink = 0.1
+        center = np.array([cx, cy], dtype=np.float32)
+        pts = text_box - center
+        pts = pts * (1 - shrink)
+        roi_box = (pts + center).astype(np.int32)
+
+    # ---- Gambar kedua bounding box ----
+    cv2.drawContours(output, [paper_box], -1, (255, 0, 0), 3)  # biru
+    cv2.drawContours(output, [roi_box], -1, (0, 255, 255), 3)  # kuning
+
+    return output, paper_box, roi_box
+
