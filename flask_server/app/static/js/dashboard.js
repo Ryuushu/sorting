@@ -185,11 +185,11 @@ async function uploadFrame(base64data) {
     if (data.status !== "ok") return;
 
     // Update hasil captured frame
-    updateCapturedFrame(data.detections_image, data.paper_box, data.roi_box);
-        // detectedText.textContent = data.label || "-";
-        // activatedServo.textContent = data.servo || "-";
+    updateCapturedFrame(data.final_vis, data.paper_box, data.roi_box);
+        detectedText.textContent = data.hasil || "-";
+        activatedServo.textContent = data.servo || "-";
 
-        // document.getElementById("latestDetection").classList.remove("hidden");
+        document.getElementById("latestDetection").classList.remove("hidden");
 
         // updateServoUI(data.servo, data.angle ?? 90);
 

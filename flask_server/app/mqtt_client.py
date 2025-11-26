@@ -87,6 +87,10 @@ def on_message(client, userdata, msg):
 
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"{timestamp} | 📏 Distance: {distance} | cooldown: {capture_ctrl.cooldown_active} | requested: {capture_ctrl.capture_requested}")
+    if 60 <= distance <= 65:
+        mqtt_client.publish("esp8266/servo_reset", payload="reset", qos=0)
+    if 35 <= distance <= 35:
+        mqtt_client.publish("esp8266/servo_reset", payload="reset", qos=0)
     if distance > 20:
         if capture_ctrl.capture_requested:
             with capture_ctrl.lock:
@@ -105,6 +109,11 @@ def on_message(client, userdata, msg):
             else:
                 print("⛔ Capture diblokir, cooldown atau sudah requested")         
 
+
+def servo(servo_id, angle):
+    payload = f"servo{servo_id}:{angle}"
+    mqtt_client.publish("servo/control", payload)
+    
 # --------------------------
 # Start MQTT
 # --------------------------
