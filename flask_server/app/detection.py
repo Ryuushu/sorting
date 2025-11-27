@@ -297,14 +297,14 @@ def rule_grub(input_text):
         "Barat": ["bondowoso", "curahdami", "grujugan", "maesan", "tamanan", "binakal", "pakem"]
     }
 
-    # Normalize input supaya lebih fleksibel
-    input_norm = input_text.strip().lower().replace(" ", "")
+    # # Normalize input supaya lebih fleksibel
+    # input_norm = input_text.strip().lower().replace(" ", "")
     
     for arah, kec_list in data.items():
         # normalisasi daftar kecamatan
         kec_norm = [k.lower().replace(" ", "") for k in kec_list]
         # gunakan difflib untuk kecocokan mirip
-        hasil = difflib.get_close_matches(input_norm, kec_norm, n=1, cutoff=0.6)
+        hasil = difflib.get_close_matches(input_text, kec_norm, n=1, cutoff=0.6)
         if hasil:
             return arah  # jika ketemu, kembalikan arah
 

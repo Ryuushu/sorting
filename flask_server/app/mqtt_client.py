@@ -69,6 +69,8 @@ def cooldown_timer():
 # --------------------------
 # MQTT on_message
 # --------------------------
+def emit_ultrasonic(data):
+    socketio.emit("trigger_ultrasonic", data, namespace="/")
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode())
@@ -87,6 +89,8 @@ def on_message(client, userdata, msg):
 
     timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     print(f"{timestamp} | 📏 Distance: {distance} | cooldown: {capture_ctrl.cooldown_active} | requested: {capture_ctrl.capture_requested}")
+    data = { "distance": distance, "timestamp": timestamp}
+    socketio.start_background_task(emit_ultrasonic, data)
     if 60 <= distance <= 65:
         mqtt_client.publish("esp8266/servo_reset", payload="reset", qos=0)
     if 35 <= distance <= 35:

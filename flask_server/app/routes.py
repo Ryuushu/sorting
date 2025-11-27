@@ -1,11 +1,11 @@
-from flask import Blueprint, render_template, request, jsonify, Response
+from flask import Blueprint, render_template, request, jsonify, Response,url_for
 import cv2
 import numpy as np
 import base64
 import time
 
 from .detection import deteksi_roi
-from .database import log_detection, init_db,log
+from .database import insert_log, init_db,log
 from .mqtt_client import mqtt_client,servo
 from app.state_cache import servo_state
 from app import socketio
@@ -13,6 +13,8 @@ from app.controller import capture_ctrl
 import json
 from .detection import deteksi_roi, segmentasi, crop_rotated, prediksi,deteksi_roi2,matching,rule_grub
 import matplotlib.pyplot as plt
+import os
+from datetime import datetime
 
 bp = Blueprint('routes', __name__)
 
@@ -58,7 +60,6 @@ def upload_frame():
         print(f"Error processing frame: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 def to_base64(img):
-    """Convert numpy image to base64 string."""
     _, buffer = cv2.imencode('.jpg', img)
     return base64.b64encode(buffer).decode('utf-8')
 
@@ -114,83 +115,111 @@ def tampilkan_chars(chars):
 @bp.route('/upload_web', methods=['POST'])
 def upload_web():
     try:
-        data = request.get_json(silent=True)
-        if not data:
-            return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
+        # data = request.get_json(silent=True)
+        # if not data:
+        #     return jsonify({'status': 'error', 'message': 'No JSON received'}), 400
 
-        image_data = data.get("image")
-        if not image_data or not image_data.startswith("data:image"):
-            return jsonify({'status': 'error', 'message': 'Invalid image data'}), 400
+        # image_data = data.get("image")
+        # if not image_data or not image_data.startswith("data:image"):
+        #     return jsonify({'status': 'error', 'message': 'Invalid image data'}), 400
 
-        # --- Decode image ---
-        image_base64 = image_data.split(",")[1]
-        file_bytes = base64.b64decode(image_base64)
-        np_arr = np.frombuffer(file_bytes, np.uint8)
-        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if frame is None:
-            return jsonify({'status': 'error', 'message': 'Failed to decode image'}), 400
+        # # --- Decode image ---
+        # image_base64 = image_data.split(",")[1]
+        # file_bytes = base64.b64decode(image_base64)
+        # np_arr = np.frombuffer(file_bytes, np.uint8)
+        # frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        # if frame is None:
+        #     return jsonify({'status': 'error', 'message': 'Failed to decode image'}), 400
         
-        roi_crop_b64 = to_base64(frame)
+        # roi_crop_b64 = to_base64(frame)
 
-        # --- Tentukan ROI kanan ---
-        h, w = frame.shape[:2]
-        x1, y1 = int(w/1.9), 200
-        x2, y2 = w-100, int(h/1.1)
-        roi_box = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
-        roi_crop = frame[y1:y2, x1:x2]
+        # # --- Tentukan ROI kanan ---
+        # h, w = frame.shape[:2]
+        # x1, y1 = int(w/1.9), 200
+        # x2, y2 = w-100, int(h/1.1)
+        # roi_box = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]])
+        # roi_crop = frame[y1:y2, x1:x2]
 
-        # --- Debug ROI crop ---
+        # # --- Debug ROI crop ---
 
-        # --- Auto detect paper box ---
-        red_box_coord, roi_crop_paper = deteksi_roi2(roi_crop)
-        if red_box_coord is None or roi_crop_paper is None:
-            return jsonify({'status':'error','message':'Paper box not detected'}), 400
+        # # --- Auto detect paper box ---
+        # red_box_coord, roi_crop_paper = deteksi_roi2(roi_crop)
+        # if red_box_coord is None or roi_crop_paper is None:
+        #     return jsonify({'status':'error','message':'Paper box not detected'}), 400
 
-        red_box_coord[:,0] += x1
-        red_box_coord[:,1] += y1
+        # red_box_coord[:,0] += x1
+        # red_box_coord[:,1] += y1
 
-        roi_crop_paper_b64 = to_base64(roi_crop_paper)
+        # roi_crop_paper_b64 = to_base64(roi_crop_paper)
 
-        # --- Grayscale + CLAHE ---
-        gray = cv2.cvtColor(roi_crop_paper, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
-        thresh = cv2.inRange(enhanced, 0, 170)
+        # # --- Grayscale + CLAHE ---
+        # gray = cv2.cvtColor(roi_crop_paper, cv2.COLOR_BGR2GRAY)
+        # )clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        # enhanced = clahe.apply(gray)
+        # thresh = cv2.inRange(enhanced, 0, 170)
         
-        chars, boxes, msg = segmentasi(thresh)
-        hasil, conf = prediksi(chars)
-        txt_match = matching(hasil)
-        grub = rule_grub(txt_match)
+        # chars, boxes, msg = segmentasi(thresh)
+        # hasil, conf = prediksi(chars)
+        txt_match = matching("tegal ampel")
+        print(txt_match[0])
+        
+        
+        
+
+        # # --- Visualisasi final ---
+        # vis_frame = frame.copy()
+        # cv2.drawContours(vis_frame, [red_box_coord], -1, (0,255,0), 2)
+        # cv2.polylines(vis_frame, [roi_box], True, (0,255,255), 2)
+        # vis_frame_b64 = to_base64(vis_frame)
+        UPLOAD_FOLDER = "app/static/uploads"
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+
+        with open("app/1.jpg", 'rb') as src:
+            data = src.read()  # baca seluruh isi file sebagai bytes
+
+        # Tulis ke file baru
+        with open(filepath, 'wb') as dst:
+            dst.write(data) 
+        # with open(filepath, 'wb') as f:
+        #     # f.write(image_base64)
+        #     f.write(image_base64)
+            
+        grub = rule_grub(txt_match[0])
         
         if grub == 'Utara':
+            insert_log(txt_match[0], 1, filepath)
             servo(1, 45)
+            print("Grub Utara")
         elif grub == 'Selatan':
-            servo(4, 160)   # biasanya selatan 135° kalau mau berlawanan arah Utara
+            insert_log(txt_match[0], 4, filepath)
+            servo(4, 160)
+            print("Grub Selatan")
         elif grub == 'Timur':
+            insert_log(txt_match[0], 2, filepath)
             servo(2, 45)
+            print("Grub Timur")
         elif grub == 'Barat':
             servo(5, 160)
+            insert_log(txt_match[0], 5, filepath)
+            print("Grub Barat")
         else:
+            insert_log("luar kota", 0, filepath)
             print("Grup tidak dikenali")
+        # debug_subplot(frame, roi_crop, roi_crop_paper, enhanced, thresh, vis_frame)
+        # tampilkan_chars(chars)
         
-        
-
-        # --- Visualisasi final ---
-        vis_frame = frame.copy()
-        cv2.drawContours(vis_frame, [red_box_coord], -1, (0,255,0), 2)
-        cv2.polylines(vis_frame, [roi_box], True, (0,255,255), 2)
-        vis_frame_b64 = to_base64(vis_frame)
-        debug_subplot(frame, roi_crop, roi_crop_paper, enhanced, thresh, vis_frame)
-        tampilkan_chars(chars)
         return jsonify({
-            'status': 'ok',
-            'roi_crop': roi_crop_b64,
-            'roi_crop_paper': roi_crop_paper_b64,
-            'final_vis': vis_frame_b64,
-            'paper_box': red_box_coord.tolist(),
-            'roi_box': roi_box.tolist(),
-            'hasil': hasil,
-            'confidence': conf
+            'status': txt_match,
+            
+            # 'roi_crop': roi_crop_b64,
+            # 'roi_crop_paper': roi_crop_paper_b64,
+            # 'final_vis': vis_frame_b64,
+            # 'paper_box': red_box_coord.tolist(),
+            # 'roi_box': roi_box.tolist(),
+            # 'hasil': hasil,
+            # 'confidence': conf
         }), 200
 
     except Exception as e:
@@ -264,13 +293,18 @@ def stream_frame():
 
 @bp.route('/api/logs')
 def get_logs():
-    """Get detection logs from MySQL"""
-    return jsonify(log())
+    rows = log()
+    for r in rows:
+        if r.get('img'):
+            # ambil nama file saja
+            filename = r['img'].replace('\\','/').split('/')[-1]
+            # buat URL yang bisa diakses publik
+            r['img'] = url_for('static', filename=f'uploads/{filename}')
+    
+    return jsonify(rows)
 
 @bp.route('/api/servo_status')
 def servo_status():
-    """Ask ESP32 for servo status via MQTT"""
-    
     # Request status
     mqtt_client.publish("iot/servo/get_status", "1")
 

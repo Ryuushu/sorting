@@ -234,14 +234,43 @@
         </div>
 
         <!-- Servo Status Panel -->
-        <div class="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+        <div class="rounded-lg shadow-xl overflow-hidden">
+          <div
+            class="bg-gray-800 rounded-lg shadow-xl overflow-hidden max-w-sm mx-auto mb-6"
+          >
+            <div
+              class="bg-gray-700 px-6 py-4 border-b border-gray-600 flex justify-between items-center"
+            >
+              <h2 class="text-xl font-semibold flex items-center">
+                <i class="fas fa-gears mr-2 text-purple-400"></i>
+                Jarak Ultrasonic
+              </h2>
+            </div>
+            <div class="p-6 text-center" id="ultrasonicCard">
+              <p class="text-gray-400">Waiting for data...</p>
+              <p
+                class="text-3xl font-bold text-purple-400 mt-4"
+                id="ultrasonicDistance"
+              >
+                0 cm
+              </p>
+              <div class="w-full bg-gray-600 rounded-full h-4 mt-4">
+                <div
+                  id="ultrasonicProgress"
+                  class="bg-purple-400 h-4 rounded-full"
+                  style="width: 0%"
+                ></div>
+              </div>
+            </div>
+          </div>
+
           <div class="bg-gray-700 px-6 py-4 border-b border-gray-600">
             <h2 class="text-xl font-semibold flex items-center">
               <i class="fas fa-gears mr-2 text-purple-400"></i>
               Servo Status
             </h2>
           </div>
-          <div class="p-4">
+          <div class="p-4 bg-gray-800">
             <div class="grid grid-cols-2 gap-4">
               <!-- Servo 1-6 -->
               <div class="bg-gray-700 rounded-lg p-4" id="servo1">

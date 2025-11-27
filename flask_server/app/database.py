@@ -13,24 +13,22 @@ def init_db():
             timestamp DATETIME,
             detected_text VARCHAR(255),
             servo_id INT,
-            confidence FLOAT,
-            bbox TEXT
+            img VARCHAR(255)
         )
     ''')
     conn.commit()
     conn.close()
 
-def log_detection(detected_text, servo_id, confidence, bbox):
+def insert_log(detected_text, servo_id, img_path):
     conn = mysql.connector.connect(**DB_CONFIG)
     c = conn.cursor()
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    query = "INSERT INTO detections (timestamp, detected_text, servo_id, confidence, bbox) VALUES (%s, %s, %s, %s, %s)"
-    values = (timestamp, detected_text, servo_id, confidence, str(bbox))
+    query = "INSERT INTO detections (timestamp, detected_text, servo_id, img) VALUES (%s, %s, %s, %s)"
+    values = (timestamp, detected_text, servo_id, img_path)
     c.execute(query, values)
     conn.commit()
     conn.close()
     return timestamp
-
 
 def log():
     """Get detection logs from MySQL"""

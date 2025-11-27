@@ -22,6 +22,7 @@
 #     except Exception as e:
 #         return {'status': 'error', 'message': str(e)}
 import threading
+import os
 class CaptureController:
     def __init__(self):
         self.latest_frame = None
@@ -36,5 +37,9 @@ class CaptureController:
             self.cooldown_active = False
            
             print("🔄 capture_requested direset melalui class method")
+
+    def upload_img():
+        UPLOAD_FOLDER = "../uploads"
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 capture_ctrl = CaptureController()
